@@ -4,6 +4,7 @@ from collections import namedtuple
 import socket
 from concurrent.futures import ThreadPoolExecutor
 import time
+import os
 
 
 path = "./sample"
@@ -49,6 +50,9 @@ def chunk_file(file, chunk_size=1024):
         yield ChunkElement(*elem, nx_elem[1] if nx_elem else None)
         elem = nx_elem
 
+def number_of_chunks(file, chunk_size=1024):
+    file_size = os.stat(file).st_size
+    return file_size // chunk_size + (1 if file_size % chunk_size else 0)
 
 files = recursive_list_files(path)
 print(files[2].name)
@@ -62,11 +66,12 @@ print(checksums)
 """
 server commands format:
     - list_files -> "LST_FILES\r\n"
-    - get_file_checksum <file_id> -> "GET_FILE_CHECKSUM <file_id>\r\n"
+    - get_file_checksum <file_id> -> "FILE_CHECKSUM <file_id>\r\n"
+    - number_of_chunks <file_id> <chunck_size> -> "NUM_CHUNKS <file_id> <chunk_size>\r\n"
     - close connection -> "CLOSE\r\n"
     - sleep (for testing purposes) -> "SLEEP <seconds>\r\n"
 """
-def server():
+def serve():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(("localhost", 12345))
     s.listen(10)
@@ -87,9 +92,12 @@ def server():
                 if cmd == "LST_FILES":
                     for file_id, cks in checksums.items():
                         conn.sendall(f"{file_id} {cks}\r\n".encode())
-                elif cmd == "GET_FILE_CHECKSUM":
+                elif cmd == "FILE_CHECKSUM":
                     file_id = args[0]
-                    conn.sendall(f"{file_id} {checksums[file_id]}\r\n".encode())
+                    conn.sendall(f"{checksums[file_id]}\r\n".encode())
+                elif cmd == "NUM_CHUNKS":
+                    file_id, chunk_size = args
+                    conn.sendall(f"{number_of_chunks(file_id, int(chunk_size))}\r\n".encode())
                 elif cmd == "CLOSE":
                     conn.sendall("Goodbye!\r\n".encode())
                     conn.close()
@@ -98,9 +106,11 @@ def server():
                     conn.sendall(f"Sleeping for {args[0]} seconds\r\n".encode())
                     time.sleep(int(args[0]))
                     conn.sendall("Awake!\r\n".encode())
+                elif cmd == "":
+                    pass
                 else:
                     conn.sendall(f"Unknown command {cmd}\r\n".encode())
 
         thread_pool.submit(_handle_conn, conn)
 
-server()
+serve()
